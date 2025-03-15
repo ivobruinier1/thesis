@@ -19,7 +19,7 @@ parser.add_argument('--max_len', type=int, default=512,
                     help='Maximum length of data sequence.')
 parser.add_argument('--learning_rate', type=float, default=0.001,
                     help='Model learning rate.')
-parser.add_argument('--epochs', type=int, default=10,
+parser.add_argument('--epochs', type=int, default=2,
                     help='Number of training epochs.')
 parser.add_argument('--batch_size', type=int, default=8,
                     help='Size of data batch.')
@@ -33,6 +33,8 @@ args = parser.parse_args()
 # Use GPU if available
 use_cuda = torch.cuda.is_available()
 device = torch.device("cuda" if use_cuda else "cpu")
+print(f"Using device: {device}")
+
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
@@ -49,6 +51,8 @@ tokenizer = AutoTokenizer.from_pretrained("pdelobelle/robbert-v2-dutch-ner", add
 model = AutoModelForTokenClassification.from_pretrained("pdelobelle/robbert-v2-dutch-ner",
                                                    num_labels=len(labels_to_ids.keys()))
 model.to(device)
+print("Tokenizer and model loaded successfully!")
+
 
 
 # Turn conll data into lists of labels and tokens
@@ -64,7 +68,7 @@ def format_conll(conll_path):
             split_line = line.split(',')
             tag = split_line[1].strip('\n')
             token = split_line[0]
-            # Make sure that data only contains relevant tags (see label_list)
+            # Make sure that data only contains relevant tags (see label_list)_
             if tag in labels_list:
                 tags.append(tag)
                 tokens.append(token)
@@ -76,6 +80,10 @@ def format_conll(conll_path):
             all_tags.append(tags)
             tokens = []
             tags = []
+
+    print(f"First 5 sentences:\n{all_tokens[:5]}")
+    print(f"First 5 labels:\n{all_tags[:5]}")
+
     return all_tokens, all_tags
 
 
@@ -97,6 +105,9 @@ def align_label(text, labels, label_all_tokens=True):
         else:
             label_ids.append(labels_to_ids[labels[word_idx]] if label_all_tokens else -100)
         previous_word_idx = word_idx
+
+    print(f"Original Labels: {labels}")
+    print(f"Aligned Labels: {label_ids[:20]}")  # Print first 20 tokens for debugging
 
     return label_ids
 
@@ -122,6 +133,9 @@ class DataSequence(Dataset):
     def __getitem__(self, idx):
         batch_data = self.get_batch_data(idx)
         batch_labels = self.get_batch_labels(idx)
+
+        print(f"Sample batch tokens: {batch_data['input_ids'].shape}")
+        print(f"Sample batch labels: {batch_labels.shape}")
 
         return batch_data, batch_labels
 
@@ -220,6 +234,10 @@ def train_loop(model, optimizer, scheduler, train_dataloader, val_dataloader, ep
             optimizer.zero_grad()
             loss, logits = model(input_ids=input_id, attention_mask=mask, labels=train_label, return_dict=False)
 
+            if b == 0:  # Print first batch
+                print(f"Batch {b}: Loss {loss.item()}")
+                print(f"Logits shape: {logits.shape}")
+
             for i in range(logits.shape[0]):
                 logits_clean = logits[i][train_label[i] != -100]
                 label_clean = train_label[i][train_label[i] != -100]
@@ -310,6 +328,9 @@ def train_loop(model, optimizer, scheduler, train_dataloader, val_dataloader, ep
 
 # Function for evaluating trained model with test data
 def evaluate(model, test_dataloader):
+    print("Evaluating model...")
+    model.to(device)  # Ensure the model is on the correct device
+    model.eval()
     test_preds, test_labels = [], []
 
     eval_loss, eval_accuracy = 0, 0
